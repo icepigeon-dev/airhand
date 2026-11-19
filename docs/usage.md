@@ -34,6 +34,18 @@ On Windows Airhand is installed with its installer (into `C:\Program Files\Airha
 - **Uninstalling** (Settings → Apps) stops and removes the service, the startup entry, `config.toml` and the program; nothing is left behind (see [Uninstalling](#uninstalling)). Installing a new version over an old one keeps `config.toml`, and with it the control code and My devices, even if you choose to uninstall the old version first
 - A bare `airhand.exe` doesn't run without being installed: release builds ask you to run the installer. Debug builds (`npm run tauri dev`) run the host inside the tray process, like on macOS and Linux, with `config.toml` next to the program (`client/src-tauri/target/debug/`)
 
+### Remote access with the physical monitor off
+
+On the **Windows host**, install this version of Airhand and the Parsec virtual display driver. Use [Parsec VDD 0.45](https://builds.parsec.app/vdd/parsec-vdd-0.45.0.0.exe) on Windows 11 or Windows 10 21H2 and later. For older Windows 10 systems, check the supported versions. [Driver requirements](https://github.com/nomi-san/parsec-vdd#picking-a-driver)
+
+Airhand normally uses the existing desktop. If a confirmed control session finds no display to capture, the host requests a virtual screen and starts streaming as soon as Windows exposes it. Controllers share the screen. Airhand removes the screen it created when the last controller disconnects.
+
+Some monitors still report that they are connected after you turn them off. To start each connection on the virtual screen, add this top-level setting to `C:\Program Files\Airhand\config.toml` before the first table header. Quit Airhand from the tray and open it again. The controller can still switch between the physical monitors and the one labeled `(Parsec VDD)`.
+
+```toml
+prefer_virtual_display = true
+```
+
 ## Configuration file
 
 Everything Airhand saves is in one `config.toml` (with comments). The menu in the console's top-left corner also shows where it is:

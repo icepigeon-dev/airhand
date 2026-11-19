@@ -32,12 +32,14 @@ use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_MODE_ROTATION_ROTATE180, DXGI_MODE_ROTATION_ROTATE270, DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Graphics::Dxgi::{
-    CreateDXGIFactory1, DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO,
+    CreateDXGIFactory1, DXGI_ERROR_NOT_FOUND, DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO,
     DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MASKED_COLOR,
     DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME, DXGI_OUTPUT_DESC, IDXGIAdapter, IDXGIAdapter1,
     IDXGIDevice, IDXGIFactory1, IDXGIOutput1, IDXGIOutput5, IDXGIOutputDuplication, IDXGIResource,
 };
-use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITORINFO};
+use windows::Win32::Graphics::Gdi::{
+    DISPLAY_DEVICE_ATTACHED, DISPLAY_DEVICEW, EnumDisplayDevicesW, GetMonitorInfoW, MONITORINFO,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CURSOR_SHOWING, CURSOR_SUPPRESSED, CURSORINFO, GetCursorInfo,
 };
@@ -314,16 +316,41 @@ struct Output {
 
 fn outputs() -> Result<Vec<Output>> {
     let mut list = Vec::new();
+    let mut enumeration_error = None;
     unsafe {
         let factory: IDXGIFactory1 = CreateDXGIFactory1().context("CreateDXGIFactory1")?;
-        let mut ai = 0;
-        while let Ok(adapter) = factory.EnumAdapters1(ai) {
-            ai += 1;
-            let mut oi = 0;
-            while let Ok(output) = adapter.EnumOutputs(oi) {
-                oi += 1;
-                let Ok(desc) = output.GetDesc() else { continue };
-                if !desc.AttachedToDesktop.as_bool() {
+        for adapter_index in 0.. {
+            let adapter = match factory.EnumAdapters1(adapter_index) {
+                Ok(adapter) => adapter,
+                Err(e) => {
+                    if e.code() != DXGI_ERROR_NOT_FOUND {
+                        enumeration_error = Some(e);
+                    }
+                    break;
+                }
+            };
+            for output_index in 0.. {
+                let output = match adapter.EnumOutputs(output_index) {
+                    Ok(output) => output,
+                    Err(e) => {
+                        if e.code() != DXGI_ERROR_NOT_FOUND {
+                            enumeration_error = Some(e);
+                        }
+                        break;
+                    }
+                };
+                let desc = match output.GetDesc() {
+                    Ok(desc) => desc,
+                    Err(e) => {
+                        enumeration_error = Some(e);
+                        continue;
+                    }
+                };
+                let bounds = desc.DesktopCoordinates;
+                if !desc.AttachedToDesktop.as_bool()
+                    || bounds.right <= bounds.left
+                    || bounds.bottom <= bounds.top
+                {
                     continue;
                 }
                 let Ok(output) = output.cast::<IDXGIOutput1>() else {
@@ -336,6 +363,9 @@ fn outputs() -> Result<Vec<Output>> {
                 });
             }
         }
+    }
+    if list.is_empty() && let Some(e) = enumeration_error {
+        return Err(e).context("enumerating DXGI displays");
     }
     // 主显示器排第一，其余按桌面坐标从左到右
     list.sort_by_key(|o| {
@@ -359,6 +389,39 @@ fn is_primary(desc: &DXGI_OUTPUT_DESC) -> bool {
     r.left == 0 && r.top == 0
 }
 
+fn is_parsec_output(device: &[u16; 32]) -> bool {
+    use std::mem::size_of;
+    use windows::Win32::UI::WindowsAndMessaging::EDD_GET_DEVICE_INTERFACE_NAME;
+    use windows::core::PCWSTR;
+    // PnP 接口路径里 DISPLAY 后的字段是 EDID 设备 ID。
+    for index in 0.. {
+        let mut monitor = DISPLAY_DEVICEW {
+            cb: size_of::<DISPLAY_DEVICEW>() as u32,
+            ..Default::default()
+        };
+        let found = unsafe {
+            EnumDisplayDevicesW(
+                PCWSTR(device.as_ptr()),
+                index,
+                &mut monitor,
+                EDD_GET_DEVICE_INTERFACE_NAME,
+            )
+        };
+        if !found.as_bool() {
+            break;
+        }
+        if monitor.StateFlags.contains(DISPLAY_DEVICE_ATTACHED)
+            && String::from_utf16_lossy(&monitor.DeviceID)
+                .split('#')
+                .nth(1)
+                .is_some_and(|id| id.eq_ignore_ascii_case("PSCCDD0"))
+        {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn displays() -> Result<Vec<DisplayInfo>> {
     Ok(outputs()?
         .iter()
@@ -366,10 +429,13 @@ pub fn displays() -> Result<Vec<DisplayInfo>> {
         .map(|(i, o)| {
             let r = o.desc.DesktopCoordinates;
             let raw = String::from_utf16_lossy(&o.desc.DeviceName);
-            let name = raw
+            let mut name = raw
                 .trim_end_matches('\0')
                 .trim_start_matches(r"\\.\")
                 .to_string();
+            if is_parsec_output(&o.desc.DeviceName) {
+                name.push_str(super::PARSEC_SUFFIX);
+            }
             DisplayInfo {
                 index: i as u8,
                 name,

@@ -101,6 +101,8 @@ pub struct Settings {
     pub server_fp: String,
     /// 开机自动启动（`autostart`，Windows 安装版）。macOS 上以系统设置为准，这一项只是记录（见 [`autostart_default_pending`]）
     pub autostart: bool,
+    /// Windows 被控端优先在 Parsec 虚拟屏上开始会话（有些显示器关机后仍然上报在线）。
+    pub prefer_virtual_display: bool,
     /// 没配对过的控制端怎么办（`access`）：要配对码（默认），或者知道控制码就能连
     pub access: Access,
     /// 服务器分配的控制码和加密过的密钥（`[code]`），用 [`Settings::code`] 解开
@@ -113,6 +115,7 @@ impl Default for Settings {
             server: DEFAULT_SERVER.to_string(),
             server_fp: DEFAULT_SERVER_FP.to_string(),
             autostart: true,
+            prefer_virtual_display: false,
             access: Access::Pairing,
             saved_code: None,
         }
@@ -218,6 +221,8 @@ fn parse(text: &str) -> Result<Settings> {
     if let Some(v) = doc.get("autostart").and_then(|v| v.as_bool()) {
         s.autostart = v;
     }
+    s.prefer_virtual_display = cfg!(windows)
+        && doc.get("prefer_virtual_display").and_then(|v| v.as_bool()) == Some(true);
     // 只有写明了 "open" 才不要配对码：写错了的按更安全的来
     if let Some(v) = doc.get("access").and_then(|v| v.as_str()) {
         s.access = match v.trim() {
@@ -367,6 +372,9 @@ fn template_windows(server: &str, fp: &str) -> String {
 
 {access}
 
+# 安装 Parsec VDD 后，无屏时会按需建屏。想在每次远控时优先使用虚拟屏，可取消下一行的注释。
+# prefer_virtual_display = true
+
 # 开机自动启动：开机后被控端服务自动运行（登录之前也能被控制），登录后显示托盘图标。托盘菜单里也可以切换
 autostart = true
 
@@ -387,6 +395,9 @@ autostart = true
 # server_fp = ""
 
 {access}
+
+# With Parsec VDD installed, a headless host gets a display on demand. Uncomment to prefer it for every connection.
+# prefer_virtual_display = true
 
 # Start with Windows: the host service runs after boot (the computer can be controlled before anyone signs in),
 # and the tray icon shows up after signing in. Can also be changed in the tray menu

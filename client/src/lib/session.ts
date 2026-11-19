@@ -502,6 +502,7 @@ export class RemoteSession {
       case "displays":
         this.displays = ev.displays;
         this.currentDisplay = ev.current;
+        if (ev.displays.length && this.notice?.kind === "noDisplays") this.notice = null;
         this.updateViewLimit();
         break;
       case "stats":

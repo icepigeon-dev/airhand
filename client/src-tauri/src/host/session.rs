@@ -43,12 +43,30 @@ const DISPLAY_CHECK: Duration = Duration::from_secs(2);
 /// 没有虚拟麦克风（或者打不开）时隔多久再找一次：例如本机的用户这时才用了一次 Steam 远程同乐，驱动装上了
 const MIC_CHECK: Duration = Duration::from_secs(5);
 
-/// 显示器列表变了之后，正在看的显示器在新列表里的序号：按名字找（插拔别的显示器时序号可能变），
-/// 找不到（被拔掉了）就改看主显示器（新列表的第一个）。
-fn follow_display(old: &[DisplayInfo], current: u8, new: &[DisplayInfo]) -> u8 {
+fn parsec_index(displays: &[DisplayInfo]) -> Option<u8> {
+    displays
+        .iter()
+        .find(|d| d.name.ends_with(capture::PARSEC_SUFFIX))
+        .map(|d| d.index)
+}
+
+/// 插拔别的显示器时按名字跟随；正在看的屏消失时，选配置的首选屏。
+fn follow_display(
+    old: &[DisplayInfo],
+    current: u8,
+    new: &[DisplayInfo],
+    prefer_virtual: bool,
+) -> u8 {
+    let preferred = if prefer_virtual { parsec_index(new) } else { None };
+    // 虚拟屏异步接入时选它一次；之后控制端仍可以手动切回物理屏。
+    if let Some(index) = preferred && parsec_index(old).is_none() {
+        return index;
+    }
     old.get(current as usize)
-        .and_then(|d| new.iter().position(|n| n.name == d.name))
-        .unwrap_or(0) as u8
+        .and_then(|d| new.iter().find(|n| n.name == d.name))
+        .map(|d| d.index)
+        .or(preferred)
+        .unwrap_or(0)
 }
 
 /// 等到声音采集的状态有变化；没有订阅声音时一直等下去
@@ -133,6 +151,8 @@ struct Desktop {
     video: mpsc::Sender<Bytes>,
     audio: mpsc::Sender<Bytes>,
     displays: Vec<DisplayInfo>,
+    #[cfg(windows)]
+    virtual_session: Option<super::vdd::Session>,
     /// 正在看的显示器（`displays` 里的序号）
     current: u8,
     settings: QualitySettings,
@@ -204,6 +224,8 @@ impl Desktop {
             video: senders.video,
             audio: senders.audio,
             displays: Vec::new(),
+            #[cfg(windows)]
+            virtual_session: None,
             current: 0,
             settings: QualitySettings::default(),
             flow: Arc::new(Flow::default()),
@@ -305,6 +327,7 @@ impl Platform for Desktop {
         })
         .await
         .unwrap_or_default();
+        self.current = follow_display(&[], 0, &displays, config::settings().prefer_virtual_display);
         self.displays = displays;
         let (hostname, os) = crate::sysinfo::host_identity();
         info!(
@@ -355,6 +378,11 @@ impl Platform for Desktop {
     fn confirmed(&mut self) {
         if let Some((gate, ip, admitted)) = self.identity.take() {
             gate.admitted(self.session_id, ip, &admitted);
+            #[cfg(windows)]
+            {
+                self.virtual_session = super::vdd::Session::connected();
+                self.display_tick.reset_immediately();
+            }
         }
     }
 
@@ -465,15 +493,22 @@ impl Platform for Desktop {
             // （例如把显示器转成竖屏后宽高对调）。更新列表并告诉控制端；采集线程自己会重新打开。
             // 正在看的显示器换了序号就跟着它走，被拔掉了就改看主显示器
             Tick::Displays => {
-                let now = tokio::task::spawn_blocking(capture::displays)
-                    .await
-                    .unwrap_or_default();
+                let Ok(Ok(now)) = tokio::task::spawn_blocking(capture::try_displays).await else {
+                    return Ok(());
+                };
+                let prefer_virtual = config::settings().prefer_virtual_display;
+                #[cfg(windows)]
+                if let Some(session) = &self.virtual_session {
+                    session.observe(parsec_index(&now).is_some(), now.is_empty() || prefer_virtual);
+                }
                 // 列不出来（例如切换显示模式的瞬间）时保留原来的列表
                 if !now.is_empty() && now != self.displays {
-                    let next = follow_display(&self.displays, self.current, &now);
+                    let next = follow_display(&self.displays, self.current, &now, prefer_virtual);
+                    let replaced = self.displays.get(self.current as usize).map(|d| &d.name)
+                        != now.get(next as usize).map(|d| &d.name);
                     info!(session_id, ?now, current = next, "displays changed");
                     self.displays = now;
-                    if next != self.current || self.pipeline.is_none() {
+                    if replaced || next != self.current || self.pipeline.is_none() {
                         self.current = next;
                         self.restart_pipeline().await;
                     }
@@ -540,17 +575,34 @@ mod tests {
             d(0, "DISPLAY1", 0, 1920, 1080),
             d(1, "DISPLAY2", 1920, 1080, 1920),
         ];
-        assert_eq!(follow_display(&old, 1, &rotated), 1);
+        assert_eq!(follow_display(&old, 1, &rotated, false), 1);
         // 在左边插了一个显示器，正在看的那个排到了后面
         let plugged = [
             d(0, "DISPLAY1", 0, 1920, 1080),
             d(1, "DISPLAY3", 1920, 1280, 1024),
             d(2, "DISPLAY2", 3200, 1920, 1080),
         ];
-        assert_eq!(follow_display(&old, 1, &plugged), 2);
+        assert_eq!(follow_display(&old, 1, &plugged, false), 2);
         // 正在看的被拔掉了：改看主显示器
-        assert_eq!(follow_display(&old, 1, &old[..1]), 0);
+        assert_eq!(follow_display(&old, 1, &old[..1], false), 0);
         // 序号本来就不对
-        assert_eq!(follow_display(&old, 7, &old), 0);
+        assert_eq!(follow_display(&old, 7, &old, false), 0);
+    }
+
+    #[test]
+    fn prefers_a_new_virtual_screen_but_respects_later_manual_selection() {
+        let screens = [
+            d(0, "DISPLAY1", 0, 1920, 1080),
+            d(1, "DISPLAY2 (Parsec VDD)", 1920, 1920, 1080),
+        ];
+        assert_eq!(follow_display(&[], 0, &screens, true), 1);
+        assert_eq!(follow_display(&screens[..1], 0, &screens, true), 1);
+        assert_eq!(follow_display(&screens[..1], 0, &screens, false), 0);
+        assert_eq!(follow_display(&screens, 0, &screens, true), 0);
+        let replacement = [
+            d(0, "DISPLAY3", 0, 1920, 1080),
+            d(1, "DISPLAY2 (Parsec VDD)", 1920, 1920, 1080),
+        ];
+        assert_eq!(follow_display(&screens, 0, &replacement, true), 1);
     }
 }

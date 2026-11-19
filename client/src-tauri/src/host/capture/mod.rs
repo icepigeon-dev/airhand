@@ -624,24 +624,31 @@ fn open(_index: u8, _fps: u8, _output: Output) -> anyhow::Result<Box<dyn Capture
 
 /// 列出所有显示器。
 pub fn displays() -> Vec<DisplayInfo> {
+    try_displays().unwrap_or_else(|e| {
+        warn!("can't list displays: {e:#}");
+        Vec::new()
+    })
+}
+
+pub(super) const PARSEC_SUFFIX: &str = " (Parsec VDD)";
+
+/// 区分没有显示器和枚举失败，只有前者应该改变 Windows 显示拓扑。
+pub(super) fn try_displays() -> Result<Vec<DisplayInfo>> {
     #[cfg(windows)]
     {
-        super::dpi_aware(|| dxgi::displays().unwrap_or_default())
+        super::dpi_aware(dxgi::displays)
     }
     #[cfg(target_os = "linux")]
     {
-        super::x11::displays().unwrap_or_else(|e| {
-            warn!("can't list displays: {e:#}");
-            Vec::new()
-        })
+        super::x11::displays()
     }
     #[cfg(target_os = "macos")]
     {
-        super::macos::display_infos()
+        Ok(super::macos::display_infos())
     }
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
-        Vec::new()
+        Ok(Vec::new())
     }
 }
 

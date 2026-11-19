@@ -464,6 +464,7 @@ class RemoteSession(
             "displays" -> {
                 displays.value = DisplayInfo.parseList(e.optJSONArray("displays"))
                 currentDisplay.value = e.optInt("current")
+                if (displays.value.isNotEmpty()) notices.value = notices.value - "noDisplays"
                 // 转了屏 / 换了屏幕：按新的尺寸重新算解码器放不放得下
                 frameLimit = null
                 refreshSettings()

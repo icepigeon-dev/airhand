@@ -129,7 +129,8 @@ fun TvSession(session: RemoteSession, view: RemoteView, onExit: () -> Unit) {
         if (displays.size < 2) return
         val i = (displays.indexOfFirst { it.index == current }.coerceAtLeast(0) + step + displays.size) % displays.size
         session.selectDisplay(displays[i].index)
-        toast = ctx.getString(R.string.display_n, displays[i].index + 1)
+        toast = ctx.getString(R.string.display_n, displays[i].index + 1) +
+            if (displays[i].isParsecVirtual) " · Parsec VDD" else ""
     }
 
     BackHandler {

@@ -126,6 +126,8 @@ sealed interface ServerState {
 }
 
 data class DisplayInfo(val index: Int, val name: String, val width: Int, val height: Int, val primary: Boolean) {
+    val isParsecVirtual: Boolean get() = name.endsWith(" (Parsec VDD)")
+
     fun toJson(): JSONObject = JSONObject()
         .put("index", index).put("name", name).put("x", 0).put("y", 0)
         .put("width", width).put("height", height).put("primary", primary)

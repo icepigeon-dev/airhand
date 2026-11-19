@@ -16,6 +16,8 @@ mod pipeline;
 #[cfg(target_os = "macos")]
 pub(crate) mod sck;
 mod session;
+#[cfg(windows)]
+mod vdd;
 #[cfg(target_os = "linux")]
 pub(crate) mod x11;
 

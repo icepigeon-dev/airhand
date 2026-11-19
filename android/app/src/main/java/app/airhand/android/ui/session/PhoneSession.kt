@@ -679,7 +679,9 @@ private fun Displays(session: RemoteSession, onDone: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column {
                 Text(
-                    stringResource(R.string.display_n, d.index + 1) + if (d.primary) " · " + stringResource(R.string.display_primary) else "",
+                    stringResource(R.string.display_n, d.index + 1) +
+                        (if (d.primary) " · " + stringResource(R.string.display_primary) else "") +
+                        (if (d.isParsecVirtual) " · Parsec VDD" else ""),
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 Text("${d.width} × ${d.height}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -34,6 +34,18 @@ Windows 上用安装程序安装（装到 `C:\Program Files\Airhand`，所有用
 - **卸载**（设置 → 应用）会停止并删除服务、开机启动项、`config.toml` 和程序，不留下任何东西（见[卸载](#卸载)）。在旧版本上安装新版本时保留 `config.toml`（也就保留了控制码和我的设备），选择“先卸载旧版本”也一样
 - 没有安装的 `airhand.exe` 不能直接运行：发布版会提示运行安装程序。调试构建（`npm run tauri dev`）和 macOS、Linux 一样在托盘进程里运行被控端，`config.toml` 放在程序旁边（`client/src-tauri/target/debug/`）
 
+### 关掉物理显示器后继续远控
+
+在 Windows **被控端**安装带此功能的 Airhand 和 Parsec 的虚拟显示驱动。Windows 11 或 Windows 10 21H2 及以上可用 [Parsec VDD 0.45](https://builds.parsec.app/vdd/parsec-vdd-0.45.0.0.exe)，较早的 Windows 10 可按支持版本选择驱动。[驱动版本与要求](https://github.com/nomi-san/parsec-vdd#picking-a-driver)
+
+默认优先使用现有桌面。已确认的远控会话发现没有可采集的显示器时，Airhand 会申请一块虚拟屏。Windows 识别它后，同一个连接就会收到画面。多个控制端共用这块屏，最后一个断开时 Airhand 释放自己申请的屏。
+
+有些显示器按下电源键后仍向 Windows 报告在线。如果经常关屏远控，可在被控端的 `C:\Program Files\Airhand\config.toml` 顶层（第一个 `[表名]` 之前）加入下面一行，再从托盘退出并重新打开 Airhand。下次连接会优先选择名字带 `(Parsec VDD)` 的屏，控制端的显示器菜单仍可切换到物理屏。
+
+```toml
+prefer_virtual_display = true
+```
+
 ## 配置文件
 
 Airhand 要保存的东西都在一个 `config.toml` 里（里面有注释）。控制台左上角的菜单里也能看到它的位置：

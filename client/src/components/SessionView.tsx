@@ -300,6 +300,7 @@ export function SessionView({ s }: { s: RemoteSession }) {
                       <span>
                         {t("session.display", { n: d.index + 1 })}
                         {d.primary ? t("session.primary") : ""}
+                        {d.name.endsWith(" (Parsec VDD)") ? " · Parsec VDD" : ""}
                       </span>
                       <span className="muted small">
                         {d.width}×{d.height}
