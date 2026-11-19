@@ -1,0 +1,93 @@
+name: Windows x64 installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*-parsec-vdd.*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 75
+    env:
+      RUSTUP_TOOLCHAIN: stable-x86_64-pc-windows-msvc
+      CMAKE_POLICY_VERSION_MINIMUM: '3.5'
+      VDD_SHA256: e23332448fdaf5aa017cb308db5ef6855fac526a7ded05d80c039404126d5362
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Set up the Windows toolchain
+        run: rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal --no-self-update
+      - name: Fetch the signed Parsec driver installer
+        shell: pwsh
+        run: |
+          $directory = New-Item -ItemType Directory -Force client/src-tauri/target
+          $driver = Join-Path $directory.FullName 'parsec-vdd-0.45.0.0.exe'
+          Invoke-WebRequest 'https://builds.parsec.app/vdd/parsec-vdd-0.45.0.0.exe' -OutFile $driver
+          if ((Get-FileHash $driver -Algorithm SHA256).Hash -ne $env:VDD_SHA256) {
+            throw 'Parsec VDD installer SHA-256 mismatch'
+          }
+          $signature = Get-AuthenticodeSignature $driver
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notlike '*Parsec Cloud*') {
+            throw "Unexpected Parsec VDD Authenticode signature ($($signature.Status))"
+          }
+      - name: Install locked frontend dependencies
+        working-directory: client
+        run: npm ci
+      - name: Build the x64 NSIS installer
+        working-directory: client
+        run: npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis -- --locked
+      - name: Check the bundled driver
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem client/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*_x64-setup.exe)
+          if ($installers.Count -ne 1) { throw 'Expected one x64 installer' }
+          $installer = $installers[0].FullName
+          $destination = Join-Path $env:RUNNER_TEMP 'airhand-vdd-payload'
+          7z x "$installer" "-o$destination" '-ir!parsec-vdd-0.45.0.0.exe' -y
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract the NSIS payload' }
+          $drivers = @(Get-ChildItem $destination -Recurse -File -Filter 'parsec-vdd-0.45.0.0.exe')
+          if ($drivers.Count -ne 1 -or (Get-FileHash -LiteralPath ($drivers[0].FullName) -Algorithm SHA256).Hash -ne $env:VDD_SHA256) {
+            throw 'The installer does not contain the expected Parsec driver'
+          }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: airhand-windows-x64
+          path: client/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*_x64-setup.exe
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: airhand-windows-x64
+      - name: Publish the installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          installers=(*_x64-setup.exe)
+          asset="Airhand-$GITHUB_REF_NAME-windows-x64-setup.exe"
+          mv -- "${installers[0]}" "$asset"
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          Windows x64 安装包内含 Parsec 官方签名的 VDD 0.45 驱动安装程序。Windows 11 或 Windows 10 21H2 及以上的被控机可在安装时一起安装驱动。
+
+          想在关屏后固定使用虚拟屏，可在被控机的 `config.toml` 顶层设置 `prefer_virtual_display = true` 并重启 Airhand。
+          NOTES
+          printf '\nSHA-256\n\n```text\n' >> "$RUNNER_TEMP/notes.md"
+          sha256sum -- "$asset" >> "$RUNNER_TEMP/notes.md"
+          printf '```\n' >> "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" "$asset" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --title "Airhand $GITHUB_REF_NAME · Windows x64" --notes-file "$RUNNER_TEMP/notes.md"

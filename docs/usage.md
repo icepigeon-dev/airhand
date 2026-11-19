@@ -36,7 +36,7 @@ On Windows Airhand is installed with its installer (into `C:\Program Files\Airha
 
 ### Remote access with the physical monitor off
 
-On the **Windows host**, install this version of Airhand and the Parsec virtual display driver. Use [Parsec VDD 0.45](https://builds.parsec.app/vdd/parsec-vdd-0.45.0.0.exe) on Windows 11 or Windows 10 21H2 and later. For older Windows 10 systems, check the supported versions. [Driver requirements](https://github.com/nomi-san/parsec-vdd#picking-a-driver)
+On the **Windows host**, run the Windows x64 installer from this fork's releases. On Windows 11 or Windows 10 21H2 and later, choose **Yes** when prompted to install the bundled Parsec VDD 0.45. Setup skips this step if a driver is already available. For a separate installation or an older Windows 10 version, use the appropriate driver. [Parsec VDD 0.45](https://builds.parsec.app/vdd/parsec-vdd-0.45.0.0.exe) · [Driver requirements](https://github.com/nomi-san/parsec-vdd#picking-a-driver)
 
 Airhand normally uses the existing desktop. If a confirmed control session finds no display to capture, the host requests a virtual screen and starts streaming as soon as Windows exposes it. Controllers share the screen. Airhand removes the screen it created when the last controller disconnects.
 

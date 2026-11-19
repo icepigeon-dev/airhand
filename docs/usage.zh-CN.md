@@ -36,7 +36,7 @@ Windows 上用安装程序安装（装到 `C:\Program Files\Airhand`，所有用
 
 ### 关掉物理显示器后继续远控
 
-在 Windows **被控端**安装带此功能的 Airhand 和 Parsec 的虚拟显示驱动。Windows 11 或 Windows 10 21H2 及以上可用 [Parsec VDD 0.45](https://builds.parsec.app/vdd/parsec-vdd-0.45.0.0.exe)，较早的 Windows 10 可按支持版本选择驱动。[驱动版本与要求](https://github.com/nomi-san/parsec-vdd#picking-a-driver)
+在 Windows **被控端**运行此 fork 发布的 Windows x64 安装包。Windows 11 或 Windows 10 21H2 及以上可在提示时选「是」，安装内置的 Parsec VDD 0.45。已有可用驱动时安装程序会自动跳过。也可单独下载驱动，较早的 Windows 10 请按系统版本选择。[Parsec VDD 0.45](https://builds.parsec.app/vdd/parsec-vdd-0.45.0.0.exe) · [驱动版本与要求](https://github.com/nomi-san/parsec-vdd#picking-a-driver)
 
 默认优先使用现有桌面。已确认的远控会话发现没有可采集的显示器时，Airhand 会申请一块虚拟屏。Windows 识别它后，同一个连接就会收到画面。多个控制端共用这块屏，最后一个断开时 Airhand 释放自己申请的屏。
 

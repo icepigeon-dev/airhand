@@ -12,6 +12,9 @@
 ; 卸载程序看到和自己的版本一样，就照样全部删除。被动安装（/P）遇到同一个版本时会自动先卸载再装，那是重装，不传版本、保留配置。
 ; 删除配置文件时服务已经停了（PREUNINSTALL），服务里"配置文件被删掉就重新生成"的检查不会再把它写回来。
 
+; Windows 发布工作流将校验过的 Parsec 官方安装程序放在 Cargo 的构建目录中。
+!define AIRHAND_VDD_SETUP "${__FILEDIR__}\..\target\parsec-vdd-0.45.0.0.exe"
+
 ; 安装程序的界面初始化时（在"已安装旧版本"页面之前）调用
 !define MUI_CUSTOMFUNCTION_GUIINIT AirhandGuiInit
 Function AirhandGuiInit
@@ -76,6 +79,26 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+!if /FileExists "${AIRHAND_VDD_SETUP}"
+  IfSilent airhand_vdd_done
+  ; 设备接口已注册时沿用现有驱动，避免降级用户安装的版本。
+  System::Call 'cfgmgr32::CM_Get_Device_Interface_List_SizeW(*i .r0, g "{00b41627-04c4-429e-a26e-0265cf50c8fa}", p 0, i 0) i .r1'
+  ${If} $1 == 0
+  ${AndIf} $0 > 1
+    Goto airhand_vdd_done
+  ${EndIf}
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "是否一并安装 Parsec 虚拟显示驱动，以便这台电脑在关屏时被远控？$\r$\nInstall the Parsec virtual display driver for remote access with the monitor off?" IDNO airhand_vdd_done
+  InitPluginsDir
+  File "/oname=$PLUGINSDIR\parsec-vdd-0.45.0.0.exe" "${AIRHAND_VDD_SETUP}"
+  ClearErrors
+  ExecWait '"$PLUGINSDIR\parsec-vdd-0.45.0.0.exe"' $0
+  ${If} ${Errors}
+  ${OrIf} $0 != 0
+    DetailPrint "Parsec VDD installer returned $0"
+    MessageBox MB_ICONINFORMATION "请在设备管理器中确认 Parsec 虚拟显示驱动的安装状态。$\r$\nCheck the Parsec virtual display driver in Device Manager."
+  ${EndIf}
+airhand_vdd_done:
+!endif
   DetailPrint "Installing the Airhand service…"
   nsExec::ExecToLog '"$INSTDIR\${MAINBINARYNAME}.exe" --install'
   Pop $0
